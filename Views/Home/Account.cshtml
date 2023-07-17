@@ -1,0 +1,313 @@
+﻿@{
+    ViewData["Title"] = "Account";
+}
+<div id="example">
+    <div id="grid"></div>
+    <div id="details"></div>
+    <div id="detailsReceipt"></div>
+</div>
+@section Scripts{
+    <script>
+        var wnd,
+            wndReceipt,
+            detailsTemplate,
+            detailsTemplateReceipt;
+        $(document).ready(function () {
+
+
+            dataSource = new kendo.data.DataSource({
+                transport: {
+                    read: {
+                        url: "@Url.Action("GetAccounts", "Account")",
+                        dataType: "json",
+                        type: "GET"
+                    },
+                    //update: {
+                    //    url: crudServiceBaseUrl + "/Products/Update",
+                    //    dataType: "jsonp"
+                    //},
+                    //destroy: {
+                    //    url: crudServiceBaseUrl + "/Products/Destroy",
+                    //    dataType: "jsonp"
+                    //},
+                    create: {
+                        url: "@Url.Action("CreateAccount", "Account")",
+                        type: "POST",
+                        dataType: "json",
+                        contentType: "application/json",
+                        complete: function (e) {
+                           
+                        }
+                    },
+                    parameterMap: function (options, operation) {
+
+                        if (operation !== "read" && options.models) {
+                            return JSON.stringify(options.models[0]);
+                        }
+                    }
+                },
+                batch: true,
+                pageSize: 20,
+                schema: {
+                    model: {
+                        id: "id",
+                        fields: {
+                            id: { editable: false, nullable: true },
+                            username: {
+                                type: "string",
+                                validation: {
+                                    required: true,
+                                    duplicate: function (input) {
+                                        return validateDuplicate(input, $("#grid").getKendoGrid());
+                                    }
+                                }
+                            },
+                            initialBalance: { type: "number", validation: { required: true, min: 0 } }
+                        }
+                    }
+                }
+            });
+           
+            $("#grid").kendoGrid({
+                dataSource: dataSource,
+                pageable: true,
+                height: 550,
+                toolbar: [{ name: "create", text: "Add Account" }],
+                columns: [
+                    { field: "id", title: "Account ID" },
+                    { field: "username", title: "User name", width: "120px" },
+                    { field: "initialBalance", title: "Balance", width: "120px" },
+                    { command: { text: "Transact", click: showDetails }, title: " ", width: "180px" }],
+                editable: "popup",
+                validate: function (e) {
+
+                    if (isNameExists(e.model.username)) {
+                        alert("Name already exists in the grid. Cannot add duplicate names.");
+                        e.preventDefault(); 
+                    }
+                  
+                }
+            });
+
+            function validateDuplicate(input, grid) {
+                if (input.is("[name='username']") && input.val() != "") {
+                    var name = input.val().toUpperCase().trim();
+                    var view = grid.dataSource.view();
+                    var name_edit = grid.editable.options.model.username.toUpperCase().trim();
+                    var valid = true;
+                    for (var i = 0; i < view.length; i++) {
+                        if ((name == view[i].username.toUpperCase().trim() && (name != name_edit))) {
+                            valid = false;
+                            input.attr("data-duplicate-msg", "Duplicates not allowed.");
+                            break;
+                        }
+                    }
+                    return valid;
+                }
+
+
+                return true;
+            }
+
+            wnd = $("#details")
+                .kendoWindow({
+                    title: "Transfer",
+                    modal: true,
+                    visible: false,
+                    resizable: false,
+                    width: "60%",
+                    open: function (e) {
+                        var item = e.sender.dataItem;
+                       
+                        var transferTo = $("#transferTo").kendoDropDownList({
+                            optionLabel: "Select...",
+                            dataTextField: "username",
+                            dataValueField: "id",
+                            dataSource: {
+                                transport: {
+                                    read: {
+                                        url: "@Url.Action("GetTransferTo", "Transfer")" + "?Username=" +item.username,
+                                        type: "GET",
+                                        dataType: "json",
+                                    }
+                                }
+                            }
+                        }).data("kendoDropDownList");
+
+                        $("#btnCancel").click(function () {
+
+                            wnd.close();
+                        });
+
+                        $("#btnSave").click(function () {
+                            if (transferTo.value() == "") {
+                                alert("Unable to proceed, please select the Destination Account");
+                                return
+                            }
+                            if ($("#transferAmount").val() == "") {
+                                alert("Unable to proceed, please select Input the Transfer Amount");
+                                return
+                            }
+                            model = {
+                                "sourceAccountID": item.id,
+                                "destinationAccountID": transferTo.value(),
+                                "transferAmount": parseFloat($("#transferAmount").val())
+                            };
+
+                             $.ajax({
+                    url: "@Url.Action("TransferTransaction", "Transfer")",
+                    type: "POST",
+                    dataType: 'JSON',
+                    data: JSON.stringify(model),
+                    contentType: "application/json",
+                        success: function (response) {
+                            
+                            wnd.close();
+                          
+                            showDetailsReceipt(response)
+                            $("#grid").getKendoGrid().dataSource.read();
+                        },
+                        error: function () {
+                            alert('System Error');
+                        }
+                    });
+
+                        });
+                    }
+                }).data("kendoWindow");
+
+            detailsTemplate = kendo.template($("#template").html());
+
+            wndReceipt = $("#detailsReceipt")
+                .kendoWindow({
+                    title: "Transaction",
+                    modal: true,
+                    visible: false,
+                    resizable: false,
+                    width: 600,
+                    open: function (e) {
+                        var item = e.sender.dataItem;
+                     
+                    }
+                }).data("kendoWindow");
+
+        
+        });
+       
+
+        function showDetails(e) {
+            e.preventDefault();
+
+            var dataItem = this.dataItem($(e.currentTarget).closest("tr"));
+         
+            wnd.content(detailsTemplate(dataItem));
+            wnd.dataItem = dataItem;
+            wnd.center().open();
+        }
+        function showDetailsReceipt(items) {         
+            detailsTemplateReceipt = kendo.template($("#templateReceipt").html());
+            wndReceipt.content(detailsTemplateReceipt(items));
+            wndReceipt.dataItem = items;
+            wndReceipt.center().open();
+        }
+        function minmax(value, min, max) {
+            
+            if (value < min) {
+              
+                return null;
+            }
+            else if (value > max) {
+             
+                return null;
+            }
+          
+            return value
+        }
+    </script>
+
+    <script type="text/x-kendo-template" id="template">
+                     <div id="details-container" class="m-2">
+
+         <div class="row">
+                         <h2>Transfer From</h2>
+        </div>
+                        <div class="row">
+
+                 <div class="col-lg-5">
+                           <div class="input-group mb-3">
+                  <div class="input-group-prepend">
+                    <span class="input-group-text" id="basic-addon1">Account ID</span>
+                  </div>
+                  <input type="text" class="form-control" aria-describedby="basic-addon1" value=#= id # readOnly>
+                </div>
+                        </div>
+                <div class="col-lg-4">
+                           <div class="input-group mb-3">
+                  <div class="input-group-prepend">
+                    <span class="input-group-text" id="basic-addon1">Username</span>
+                  </div>
+                  <input type="text" class="form-control" aria-describedby="basic-addon1" value=#= username # readOnly>
+                </div>
+                        </div>
+
+                <div class="col-lg-3">
+                           <div class="input-group mb-3">
+                  <div class="input-group-prepend">
+                    <span class="input-group-text" id="basic-addon1">Balance</span>
+                  </div>
+                  <input type="text" class="form-control"aria-describedby="basic-addon1" value=#= initialBalance # readOnly>
+                </div>
+                        </div>
+                </div>
+                 </hr>
+                  <div class="row">
+                  <h2>Transfer To</h2>
+                </div>
+                <div class="row">
+
+                 <div class="col-lg-5">
+                            <div class="input-group mb-3">
+                  <div class="input-group-prepend">
+                    <span class="input-group-text" id="basic-addon1">Account</span>
+                  </div>
+                  <input type="text" id="transferTo"  data-bind="value: transferTo" class="form-control"aria-describedby="basic-addon1" >
+                </div>
+                        </div>
+
+                <div class="col-lg-4">
+                           <div class="input-group mb-3">
+                  <div class="input-group-prepend">
+                    <span class="input-group-text" id="basic-addon1">Transfer Amount</span>
+                  </div>
+                  <input type="number" id="transferAmount" class="form-control"aria-describedby="basic-addon1" onkeyup="this.value = minmax(this.value, 0, #=initialBalance #)">
+                </div>
+                        </div>
+                </div>
+         <div class="k-edit-buttons k-actions-end">
+            <button type="button" id="btnSave" class="k-button k-button-md k-rounded-md k-button-solid k-button-solid-primary k-scheduler-update"><span class="k-button-text">Save</span></button>
+            <button type="button" id="btnCancel" class="k-button k-button-md k-rounded-md k-button-solid k-scheduler-cancel k-button-solid-base"><span class="k-button-text">Cancel</span></button>
+
+          </div>
+                       </div>
+
+    </script>
+
+    <script type="text/x-kendo-template" id="templateReceipt">
+        <div id="details-container">
+            <h2>Successfuly Transferred!</h2>
+        <em>Transaction ID: #= id # </em>
+         <h3 class="amount">Amount:  #= transferAmount #</h3>
+            <dl>
+                <dt>Transferred From: #= sourceAccountID #</dt>
+            </dl>
+         <dl>
+                <dt>Transferred To: #= destinationAccountID #</dt>
+            </dl>
+        </div>
+    </script>
+}
+<style>
+    .amount {
+        background-color: #fffbc7;
+    }
+</style>
